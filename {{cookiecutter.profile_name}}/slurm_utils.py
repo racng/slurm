@@ -27,6 +27,7 @@ def join(loader, node):
     seq = loader.construct_sequence(node)
     return ''.join([str(i) for i in seq])
 
+# Adapted from snakemake.io 
 def _load_configfile(configpath, filetype="Config"):
     "Tries to load a configfile first as JSON, then as YAML, into a dict."
     import yaml
@@ -61,6 +62,7 @@ def _load_configfile(configpath, filetype="Config"):
     except FileNotFoundError:
         raise WorkflowError("{} file {} not found.".format(filetype, configpath))
 
+# From snakemake.io 
 def load_configfile(configpath):
     "Loads a JSON or YAML configfile as a dict, then checks that it's a dict."
     config = _load_configfile(configpath)
