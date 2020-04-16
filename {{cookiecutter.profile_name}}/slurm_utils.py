@@ -4,8 +4,9 @@ import re
 import math
 import argparse
 import subprocess
+import json
+import collections
 
-from snakemake import io
 from snakemake.utils import SequenceFormatter, AlwaysQuotedFormatter, QuotedFormatter
 from snakemake.exceptions import WorkflowError
 
@@ -22,12 +23,58 @@ def parse_sbatch_defaults(parsed):
     args = {k.strip().strip("-"): v.strip() for k, v in [a.split("=") for a in d]}
     return args
 
+def join(loader, node):
+    seq = loader.construct_sequence(node)
+    return ''.join([str(i) for i in seq])
+
+def _load_configfile(configpath, filetype="Config"):
+    "Tries to load a configfile first as JSON, then as YAML, into a dict."
+    import yaml
+
+    try:
+        with open(configpath) as f:
+            try:
+                return json.load(f, object_pairs_hook=collections.OrderedDict)
+            except ValueError:
+                f.seek(0)  # try again
+            try:
+                # From https://stackoverflow.com/a/21912744/84349
+                class OrderedLoader(yaml.Loader):
+                    pass
+
+                def construct_mapping(loader, node):
+                    loader.flatten_mapping(node)
+                    return collections.OrderedDict(loader.construct_pairs(node))
+
+                OrderedLoader.add_constructor(
+                    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping
+                )
+                # From https://stackoverflow.com/questions/5484016/
+                OrderedLoader.add_constructor('!join', join)
+                return yaml.load(f, Loader=OrderedLoader)
+            except yaml.YAMLError:
+                raise WorkflowError(
+                    "Config file is not valid JSON or YAML. "
+                    "In case of YAML, make sure to not mix "
+                    "whitespace and tab indentation.".format(filetype)
+                )
+    except FileNotFoundError:
+        raise WorkflowError("{} file {} not found.".format(filetype, configpath))
+
+def load_configfile(configpath):
+    "Loads a JSON or YAML configfile as a dict, then checks that it's a dict."
+    config = _load_configfile(configpath)
+    if not isinstance(config, dict):
+        raise WorkflowError(
+            "Config file must be given as JSON or YAML " "with keys at top level."
+        )
+    return config
 
 def load_cluster_config(path):
     """Load config to dict either from absolute path or relative to profile dir."""
     if path:
         path = os.path.join(os.path.dirname(__file__), os.path.expandvars(path))
-        dcc = io.load_configfile(path)
+        dcc = load_configfile(path)
     else:
         dcc = {}
     if "__default__" not in dcc:
@@ -69,7 +116,7 @@ def format_values(dictionary, job_properties):
                 )
                 raise WorkflowError(msg, e)
     return formatted
-    
+
 def convert_job_properties(job_properties, resource_mapping={}):
     options = {}
     resources = job_properties.get("resources", {})
